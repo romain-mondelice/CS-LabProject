@@ -1,9 +1,41 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.integrate import quad
 
 #------------------------------------------------------------------------------------------
-def cost_function(x):
-    return np.exp(-x)
+def deterministic_discretization(density_func, support, n):
+    """
+    Discretize a probability density function using deterministic method.
+
+    Parameters:
+    density_func: Function to compute the probability density.
+    support: Tuple of (min, max) values representing the support of the density.
+    n: Number of intervals for discretization.
+
+    Returns:
+    A tuple of support points and corresponding weights (probabilities).
+    """
+    points = np.linspace(support[0], support[1], n + 1)
+    weights = np.array([(density_func((points[i] + points[i+1]) / 2) * (points[i+1] - points[i])) for i in range(n)])
+    # Normalize weights to ensure they sum up to 1
+    weights /= np.sum(weights)
+    return (points[:-1] + points[1:]) / 2, weights
+
+def rho_k(x, k=3):
+    if x <= 0:
+        return 0
+    return np.exp(-np.log(x)**2 / (2 * k**2)) / (x * np.sqrt(2 * np.pi * k**2))
+
+def integral_tail(large_value, k=3):
+    # The upper limit for integration is set to np.inf for the integration to infinity
+    result, _ = quad(lambda x: rho_k(x, k), large_value, np.inf)
+    return result
+
+def lookback_option_cost(x, y, z, lambda_term):
+    return np.maximum(x, y, z) - lambda_term
+
+def asian_option_cost(x, y, z, lambda_term):
+    return ((x + y + z) / 3 - lambda_term**2)
 
 def KL_divergence(p, q):
     # Calculate the KL divergence between p and q
@@ -35,12 +67,15 @@ def project_onto_C2plus(p, xi, yj, alpha, i):
     which involves the martingale condition for a specific row i.
     """
     # Compute the expected value of y given x_i
-    expected_value = np.sum(p[i, :] * yj) / alpha[i] if alpha[i] != 0 else 0
+    expected_value = np.sum(p[i, :] * yj) / alpha[i][0] if alpha[i][0] != 0 else 0
+    print("expected_value >> ", expected_value)
     # Compute the scale factor for row i to satisfy the martingale property
     scale_factor = xi[i] / expected_value if expected_value != 0 else 0
+    print("scale_factor >> ", scale_factor)
     # Update row i
     p_new = np.copy(p)
     p_new[i, :] *= scale_factor
+    print(p_new)
     # Adjust the row to ensure the sum matches alpha_i
     row_sum = np.sum(p_new[i, :])
     if row_sum != 0:
@@ -49,74 +84,70 @@ def project_onto_C2plus(p, xi, yj, alpha, i):
 #------------------------------------------------------------------------------------------
 
 #------------------------------------------------------------------------------------------
-# Define 2 discrete probability distributions
-# Since it's a test purpose and that we don't have any specific values for alpha_i, beta_j, delta_xi, and delta_yj are provided,
-# we will generate two discrete probability distributions with random values for demonstration purposes.
+# Define the support for rho_k(x) which in practice might be truncated to a reasonable interval
+epsilon = 1e-2
+k = 3
+large_value = 1000
+integral_tail_value = integral_tail(large_value, k)
+print(integral_tail_value)
 
-# For simplicity, we'll assume m = n = 5 (5-point distributions)
-m = 100  # Number of points in the first distribution
-n = 100  # Number of points in the second distribution
+support = (epsilon, large_value)  # epsilon > 0 to avoid log(0), large_value large enough to approximate infinity
 
-# Generate random weights (alpha_i and beta_j) for the two distributions
-# and normalize them so they sum up to 1 to represent probabilities
-alpha = np.random.rand(m)
-alpha /= alpha.sum()  # Normalize to get probabilities that sum to 1
+# Example values for discretization
+m = 100
+n = 3
 
-beta = np.random.rand(n)
-beta /= beta.sum()  # Normalize to get probabilities that sum to 1
-
-# Generate random support points (xi and yj) for the two distributions
-xi = np.random.rand(m)
-yj = np.random.rand(n)
-
-# Create the discrete probability distributions
-mu = [(a, x) for a, x in zip(alpha, xi)]
-nu = [(b, y) for b, y in zip(beta, yj)]
+# Support points and weights for each marginal distribution
+support_points = []
+weights = []
+for k in range(1, n+1):
+    sp, w = deterministic_discretization(lambda x: rho_k(k, x), support, m)
+    support_points.append(sp)
+    weights.append(w)
 #------------------------------------------------------------------------------------------
 
 #------------------------------------------------------------------------------------------
-# Initialize your probability matrix p, for example with uniform distribution
+# Bregman projection
+# Initialize the joint probability matrix p
 p = np.full((m, n), fill_value=1/(m*n))
 
+# Define alpha and beta based on the weights obtained from discretization
+alpha = np.array(weights)
+alpha = alpha.reshape(m, n)
+beta = np.array(weights)
+beta = beta.reshape(m, n)
+
 # Set the number of iterations for the Bregman projection
-num_iterations = 100
+num_iterations = 1000
+tolerance = 1e-6
 
 # Begin the iterative projection process
-tolerance=1e-6
-p_prev = p
 for iteration in range(num_iterations):
-    print("Iteration: ", iteration)
+    p_prev = p.copy()
     p = project_onto_C1(p, alpha)
     p = project_onto_C2(p, beta)
     for i in range(m):
-        p = project_onto_C2plus(p, xi, yj, alpha, i)
-    if KL_divergence(p, p_prev) < tolerance:
+        p = project_onto_C2plus(p, support_points[i], support_points, alpha, i)
+    
+    # Check for convergence using KL divergence
+    divergence = KL_divergence(p, p_prev)
+    if divergence < tolerance:
+        print(f'Converged after {iteration} iterations with divergence = {divergence}')
         break
-    p_prev = p
 #------------------------------------------------------------------------------------------
 
 
 #------------------------------------------------------------------------------------------
 # Visualization
-P_n_i = np.array([np.sum(p[i, :] * cost_function((i - np.arange(n)) / n)) for i in range(m)])
-
-# Plot the expected values P_n,i
-plt.figure(figsize=(10, 5))
-plt.plot(P_n_i, label='P_n,i')
-plt.xlabel('i')
-plt.ylabel('P_n,i')
-plt.title('Expected values P_n,i')
-plt.legend()
-plt.show()
-
-# Create a heat map for the optimizer p for n = 100
+# Compute the heat map for the optimizer p
 plt.figure(figsize=(10, 5))
 plt.imshow(p, cmap='hot', interpolation='nearest')
 plt.colorbar(label='Probability Value')
-plt.title('Heat map of the optimizer p for n = 100')
-plt.xlabel('j')
-plt.ylabel('i')
+plt.title('Heat Map of the Joint Distribution p')
+plt.xlabel('Index j')
+plt.ylabel('Index i')
 plt.show()
+
 #------------------------------------------------------------------------------------------
 
 
