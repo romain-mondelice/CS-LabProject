@@ -22,7 +22,6 @@ def animate(i):
     return line,
 #-------------------------------------------------------------------------------------------------------
 
-
 #-------------------------------------------------------------------------------------------------------
 # Parameters for the Gaussian distributions
 mean1, std1 = 0, 1  # Initial Gaussian distribution (mean, std)
@@ -82,10 +81,12 @@ else:
     print(f"Problem status: {problem.status}")
 
 plt.figure(figsize=(10, 8))
-sns.heatmap(optimal_transport_plan, cmap='viridis')
-plt.title('Heatmap of Optimal Transport Plan')
-plt.xlabel('Final Distribution Points')
-plt.ylabel('Initial Distribution Points')
+plt.imshow(optimal_transport_plan, cmap='Blues', aspect='auto')  # Use 'Blues' colormap
+plt.colorbar(label='Transport Quantity')  # Add a colorbar for reference
+plt.xlabel('Final Distribution Points (S2)')
+plt.ylabel('Initial Distribution Points (S1)')
+plt.title('Optimal Transport Plan')
+plt.tight_layout()  # Adjusts plot so that they fit into the figure area
 plt.show()
 
 plt.figure(figsize=(10, 8))
