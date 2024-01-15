@@ -1,35 +1,24 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import quad
+from scipy.stats import norm
+from scipy.stats import lognorm
 
 #------------------------------------------------------------------------------------------
-def deterministic_discretization(density_func, support, n):
-    """
-    Discretize a probability density function using deterministic method.
+# This function discretizes the support of the density function into n intervals
+def deterministic_discretization(density_func, support, n, k):
+    points = np.linspace(support[0], support[1], n+1)
+    weights = np.zeros(n)
+    for i in range(n):
+        weights[i], _ = quad(density_func, points[i], points[i+1], args=(k))
+    weights /= np.sum(weights) # Normalize the weights
+    return (points[:-1] + points[1:])/2, weights
 
-    Parameters:
-    density_func: Function to compute the probability density.
-    support: Tuple of (min, max) values representing the support of the density.
-    n: Number of intervals for discretization.
-
-    Returns:
-    A tuple of support points and corresponding weights (probabilities).
-    """
-    points = np.linspace(support[0], support[1], n + 1)
-    weights = np.array([(density_func((points[i] + points[i+1]) / 2) * (points[i+1] - points[i])) for i in range(n)])
-    # Normalize weights to ensure they sum up to 1
-    weights /= np.sum(weights)
-    return (points[:-1] + points[1:]) / 2, weights
-
-def rho_k(x, k=3):
+def rho_k(x, k):
     if x <= 0:
         return 0
-    return np.exp(-np.log(x)**2 / (2 * k**2)) / (x * np.sqrt(2 * np.pi * k**2))
-
-def integral_tail(large_value, k=3):
-    # The upper limit for integration is set to np.inf for the integration to infinity
-    result, _ = quad(lambda x: rho_k(x, k), large_value, np.inf)
-    return result
+    else:
+        return np.exp(-(np.log(x) + k**2/2)**2 / (2*k**2)) / (x * k * np.sqrt(2*np.pi))
 
 def lookback_option_cost(x, y, z, lambda_term):
     return np.maximum(x, y, z) - lambda_term
@@ -42,112 +31,124 @@ def KL_divergence(p, q):
     return np.sum(p * np.log(p / q) - p + q, where=(p != 0))
 
 def project_onto_C1(p, alpha):
-    """
-    Projects a probability matrix p onto the constraint set C1, 
-    where each row sum must equal the corresponding entry in alpha.
-    """
-    row_sums = np.sum(p, axis=1, keepdims=True)
-    # Avoid division by zero
-    row_sums[row_sums == 0] = 1
-    return (p / row_sums) * alpha[:, np.newaxis]
+    alpha = np.asarray(alpha)
+    for i in range(p.shape[0]):
+        row_sum = np.sum(p[i, :])
+        if row_sum > 0:
+            p[i, :] *= (alpha[i] / row_sum)
+    return p
 
-def project_onto_C2(p, beta):
-    """
-    Projects a probability matrix p onto the constraint set C2, 
-    where each column sum must equal the corresponding entry in beta.
-    """
-    col_sums = np.sum(p, axis=0, keepdims=True)
-    # Avoid division by zero
-    col_sums[col_sums == 0] = 1
-    return (p / col_sums) * beta
+def project_onto_C2(p, beta, k):
+    beta_k = np.asarray(beta[k])
+    for j in range(p.shape[1]):
+        col_sum = np.sum(p[:, j])
+        if col_sum > 0:
+            p[:, j] *= (beta_k[j] / col_sum)
+    return p
 
-def project_onto_C2plus(p, xi, yj, alpha, i):
-    """
-    Projects a probability matrix p onto the constraint set C2+l, 
-    which involves the martingale condition for a specific row i.
-    """
-    # Compute the expected value of y given x_i
-    expected_value = np.sum(p[i, :] * yj) / alpha[i][0] if alpha[i][0] != 0 else 0
-    print("expected_value >> ", expected_value)
-    # Compute the scale factor for row i to satisfy the martingale property
-    scale_factor = xi[i] / expected_value if expected_value != 0 else 0
-    print("scale_factor >> ", scale_factor)
-    # Update row i
+def project_onto_C2plus(p, x, y, alpha):
     p_new = np.copy(p)
-    p_new[i, :] *= scale_factor
-    print(p_new)
-    # Adjust the row to ensure the sum matches alpha_i
-    row_sum = np.sum(p_new[i, :])
-    if row_sum != 0:
-        p_new[i, :] *= alpha[i] / row_sum
+    for k in range(len(x)):
+        expected_value = np.dot(p_new[k, :], y)
+        adjustment_factor = (alpha[k] * x[k] / expected_value) if expected_value != 0 else 0
+        p_new[k, :] *= adjustment_factor
+        row_sum = np.sum(p_new[k, :])
+        if row_sum != 0:
+            p_new[k, :] /= row_sum
     return p_new
+
 #------------------------------------------------------------------------------------------
 
 #------------------------------------------------------------------------------------------
 # Define the support for rho_k(x) which in practice might be truncated to a reasonable interval
-epsilon = 1e-2
-k = 3
-large_value = 1000
-integral_tail_value = integral_tail(large_value, k)
-print(integral_tail_value)
-
-support = (epsilon, large_value)  # epsilon > 0 to avoid log(0), large_value large enough to approximate infinity
+k_values = [1, 2, 3]
+n = 100  # Number of intervals
+support = (0.01, 10)  # Truncated support for the density function
 
 # Example values for discretization
 m = 100
-n = 3
+n = 3 # Trading dates
 
-# Support points and weights for each marginal distribution
-support_points = []
-weights = []
-for k in range(1, n+1):
-    sp, w = deterministic_discretization(lambda x: rho_k(k, x), support, m)
-    support_points.append(sp)
-    weights.append(w)
+discretizations = {}
+for k in k_values:
+    points, weights = deterministic_discretization(rho_k, support, n, k)
+    discretizations[k] = (points, weights)
+    
+for k, (points, weights) in discretizations.items():
+    print(f"Discretization for k={k}:")
+    print(f"Points: {points}")
+    print(f"Weights: {weights}\n")
+    
+plt.figure(figsize=(14, 6))
+for k, (points, weights) in discretizations.items():
+    plt.plot(points, weights, label=f'k={k}', marker='o')
+
+plt.title('Discretized Density Functions for Different k')
+plt.xlabel('x')
+plt.ylabel('Probability Weights')
+plt.legend()
+plt.grid(True)
+plt.show()
 #------------------------------------------------------------------------------------------
 
 #------------------------------------------------------------------------------------------
 # Bregman projection
-# Initialize the joint probability matrix p
-p = np.full((m, n), fill_value=1/(m*n))
+# Assuming k_values corresponds to different times or conditions
+n = 100
 
-# Define alpha and beta based on the weights obtained from discretization
-alpha = np.array(weights)
-alpha = alpha.reshape(m, n)
-beta = np.array(weights)
-beta = beta.reshape(m, n)
+# Define the parameters for the normal distribution
+mu = np.mean(support)
+sigma = (support[1] - support[0]) / 10
+points = np.linspace(support[0], support[1], n)
+pdf_values = norm.pdf(points, mu, sigma)
+alpha = pdf_values / np.sum(pdf_values)
 
-# Set the number of iterations for the Bregman projection
+# Beta is a dictionary where each trading date k has an associated distribution
+mus = [np.log(0.9), np.log(1.0), np.log(1.1)]
+sigma = 0.25
+
+# Initialize beta as an empty dictionary
+beta = {}
+for k, mu in zip(k_values, mus):
+    points = np.linspace(support[0], support[1], n)
+    pdf_values = lognorm.pdf(points, sigma, scale=np.exp(mu))
+    beta[k] = pdf_values / np.sum(pdf_values)
+
+# Probability matrix p is an n x n matrix
+p = np.ones((n, n)) / (n * n)
+
+x_points = np.linspace(support[0], support[1], n)
+alpha_k = np.ones(m)
+
+# Begin the iterative projection process with the corrected functions
 num_iterations = 1000
 tolerance = 1e-6
-
-# Begin the iterative projection process
-for iteration in range(num_iterations):
+for k in range(3):
+    print(f"Trading day {k+1}...")
     p_prev = p.copy()
     p = project_onto_C1(p, alpha)
-    p = project_onto_C2(p, beta)
-    for i in range(m):
-        p = project_onto_C2plus(p, support_points[i], support_points, alpha, i)
-    
-    # Check for convergence using KL divergence
-    divergence = KL_divergence(p, p_prev)
-    if divergence < tolerance:
-        print(f'Converged after {iteration} iterations with divergence = {divergence}')
-        break
+    p = project_onto_C2(p, beta, k+1)
+    for iteration in range(num_iterations):
+        p = project_onto_C2plus(p, x_points, alpha_k, alpha)
+        divergence = KL_divergence(p, p_prev)
+        if divergence < tolerance:
+            print(f'Converged after {iteration+1} iterations with divergence = {divergence}')
+            break
+    else:
+        print(f'Did not converge after {num_iterations} iterations.')
 #------------------------------------------------------------------------------------------
 
 
 #------------------------------------------------------------------------------------------
 # Visualization
 # Compute the heat map for the optimizer p
-plt.figure(figsize=(10, 5))
-plt.imshow(p, cmap='hot', interpolation='nearest')
-plt.colorbar(label='Probability Value')
-plt.title('Heat Map of the Joint Distribution p')
-plt.xlabel('Index j')
-plt.ylabel('Index i')
+plt.imshow(p, cmap='Blues', aspect='auto')
+plt.colorbar(label='Probabilities')
+plt.xlabel('S2')
+plt.ylabel('S1')
+plt.title('Joint Distribution of S1 and S2')
+plt.tight_layout()  # Adjusts plot so that they fit into the figure area.
 plt.show()
-
 #------------------------------------------------------------------------------------------
 
 
