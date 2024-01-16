@@ -109,7 +109,7 @@ def update(frame):
     ax.clear()
     # Plot the initial and final distributions
     ax.plot(points, alpha, color='green', label='Initial Distribution')
-    ax.plot(points + range_max, beta, color='red', label='Final Distribution')
+    ax.plot(points, beta, color='red', label='Final Distribution')
 
     # Visualize the transport for a subset of points at each frame
     step = len(points) // num_frames
@@ -118,7 +118,7 @@ def update(frame):
     for i in range(start, end):
         for j in range(len(points)):
             if p[i, j] > threshold:  # Only visualize significant transports
-                ax.arrow(points[i], alpha[i], range_max + points[j] - points[i], beta[j] - alpha[i], 
+                ax.arrow(points[i], alpha[i], points[j] - points[i], beta[j] - alpha[i], 
                          alpha=0.3, length_includes_head=True, head_width=0.02, color='blue')
     
     ax.legend()
