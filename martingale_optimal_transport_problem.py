@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.animation import FuncAnimation
 
 #------------------------------------------------------------------------------------------
 def cost_function(x):
@@ -10,30 +12,18 @@ def KL_divergence(p, q):
     return np.sum(p * np.log(p / q) - p + q, where=(p != 0))
 
 def project_onto_C1(p, alpha):
-    """
-    Projects a probability matrix p onto the constraint set C1, 
-    where each row sum must equal the corresponding entry in alpha.
-    """
     row_sums = np.sum(p, axis=1, keepdims=True)
     # Avoid division by zero
     row_sums[row_sums == 0] = 1
     return (p / row_sums) * alpha[:, np.newaxis]
 
 def project_onto_C2(p, beta):
-    """
-    Projects a probability matrix p onto the constraint set C2, 
-    where each column sum must equal the corresponding entry in beta.
-    """
     col_sums = np.sum(p, axis=0, keepdims=True)
     # Avoid division by zero
     col_sums[col_sums == 0] = 1
     return (p / col_sums) * beta
 
 def project_onto_C2plus(p, xi, yj, alpha, i):
-    """
-    Projects a probability matrix p onto the constraint set C2+l, 
-    which involves the martingale condition for a specific row i.
-    """
     # Compute the expected value of y given x_i
     expected_value = np.sum(p[i, :] * yj) / alpha[i] if alpha[i] != 0 else 0
     # Compute the scale factor for row i to satisfy the martingale property
@@ -49,21 +39,27 @@ def project_onto_C2plus(p, xi, yj, alpha, i):
 #------------------------------------------------------------------------------------------
 
 #------------------------------------------------------------------------------------------
-# Define 2 discrete probability distributions
-# Since it's a test purpose and that we don't have any specific values for alpha_i, beta_j, delta_xi, and delta_yj are provided,
-# we will generate two discrete probability distributions with random values for demonstration purposes.
+# Parameters for the Gaussian distributions
+mean1, std1 = 0, 1  # Initial Gaussian distribution (mean, std)
+mean2, std2 = 1, 1.5  # Final Gaussian distribution (mean, std)
 
-# For simplicity, we'll assume m = n = 5 (5-point distributions)
+# Discretization parameters
+num_points = 100  # Number of points to discretize the distribution
+range_min, range_max = -5, 5  # Range for discretization
+
+# Discretize the Gaussian distributions
+points = np.linspace(range_min, range_max, num_points)
+alpha = np.exp(-(points - mean1)**2 / (2 * std1**2)) / (std1 * np.sqrt(2 * np.pi))
+beta = np.exp(-(points - mean2)**2 / (2 * std2**2)) / (std2 * np.sqrt(2 * np.pi))
+
+# Normalize to make them valid probability distributions
+alpha /= np.sum(alpha)
+beta /= np.sum(beta)
+#------------------------------------------------------------------------------------------
+
+#------------------------------------------------------------------------------------------
 m = 100  # Number of points in the first distribution
 n = 100  # Number of points in the second distribution
-
-# Generate random weights (alpha_i and beta_j) for the two distributions
-# and normalize them so they sum up to 1 to represent probabilities
-alpha = np.random.rand(m)
-alpha /= alpha.sum()  # Normalize to get probabilities that sum to 1
-
-beta = np.random.rand(n)
-beta /= beta.sum()  # Normalize to get probabilities that sum to 1
 
 # Generate random support points (xi and yj) for the two distributions
 xi = np.random.rand(m)
@@ -95,28 +91,47 @@ for iteration in range(num_iterations):
     p_prev = p
 #------------------------------------------------------------------------------------------
 
-
 #------------------------------------------------------------------------------------------
 # Visualization
-P_n_i = np.array([np.sum(p[i, :] * cost_function((i - np.arange(n)) / n)) for i in range(m)])
-
-# Plot the expected values P_n,i
-plt.figure(figsize=(10, 5))
-plt.plot(P_n_i, label='P_n,i')
-plt.xlabel('i')
-plt.ylabel('P_n,i')
-plt.title('Expected values P_n,i')
-plt.legend()
-plt.show()
-
-# Create a heat map for the optimizer p for n = 100
-plt.figure(figsize=(10, 5))
-plt.imshow(p, cmap='hot', interpolation='nearest')
-plt.colorbar(label='Probability Value')
-plt.title('Heat map of the optimizer p for n = 100')
-plt.xlabel('j')
-plt.ylabel('i')
+plt.figure(figsize=(10, 8))
+plt.imshow(p, cmap='Blues', aspect='auto')
+plt.colorbar(label='Transport Quantity')
+plt.xlabel('Final Distribution Points (S2)')
+plt.ylabel('Initial Distribution Points (S1)')
+plt.title('Optimal Transport Plan')
+plt.tight_layout()
 plt.show()
 #------------------------------------------------------------------------------------------
 
+#-------------------------------------------------------------------------------------------------------
+# Animation
+def update(frame):
+    ax.clear()
+    # Plot the initial and final distributions
+    ax.plot(points, alpha, color='green', label='Initial Distribution')
+    ax.plot(points + range_max, beta, color='red', label='Final Distribution')
 
+    # Visualize the transport for a subset of points at each frame
+    step = len(points) // num_frames
+    start, end = step * frame, step * (frame + 1)
+    
+    for i in range(start, end):
+        for j in range(len(points)):
+            if p[i, j] > threshold:  # Only visualize significant transports
+                ax.arrow(points[i], alpha[i], range_max + points[j] - points[i], beta[j] - alpha[i], 
+                         alpha=0.3, length_includes_head=True, head_width=0.02, color='blue')
+    
+    ax.legend()
+    ax.set_xlim([range_min, 2 * range_max])
+    ax.set_ylim([0, max(alpha.max(), beta.max())])
+    ax.set_title('Step: {}'.format(frame))
+
+# Create the figure and axes
+fig, ax = plt.subplots()
+threshold = 0.00001  # Threshold for visualizing transport
+num_frames = 30    # Number of frames in the animation
+
+ani = FuncAnimation(fig, update, frames=num_frames, repeat=False)
+ani.save('MOT_transport_animation.mp4', writer='ffmpeg')
+plt.show()
+#-------------------------------------------------------------------------------------------------------

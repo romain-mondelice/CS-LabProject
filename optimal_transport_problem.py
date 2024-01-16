@@ -111,3 +111,40 @@ ani = FuncAnimation(fig, animate, frames=num_frames, init_func=init, blit=True)
 ani.save('distribution_evolution.mp4', writer='ffmpeg')
 plt.show()
 #-------------------------------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------------------------------
+# Animation
+def update(frame):
+    ax.clear()
+    # Plot the initial and final distributions
+    ax.plot(points, prob_dist1, color='green', label='Initial Distribution')
+    ax.plot(points + range_max, prob_dist2, color='red', label='Final Distribution')
+
+    # Visualize the transport for a subset of points at each frame
+    step = len(points) // num_frames
+    start, end = step * frame, step * (frame + 1)
+    
+    for i in range(start, end):
+        for j in range(len(points)):
+            if optimal_transport_plan[i, j] > threshold:  # Only visualize significant transports
+                ax.arrow(points[i], prob_dist1[i], range_max + points[j] - points[i], prob_dist2[j] - prob_dist1[i], 
+                         alpha=0.3, length_includes_head=True, head_width=0.02, color='blue')
+    
+    ax.legend()
+    ax.set_xlim([range_min, 2 * range_max])
+    ax.set_ylim([0, max(prob_dist1.max(), prob_dist2.max())])
+    ax.set_title('Step: {}'.format(frame))
+
+# Create the figure and axes
+fig, ax = plt.subplots()
+threshold = 0.00001  # Threshold for visualizing transport
+num_frames = 30    # Number of frames in the animation
+
+ani = FuncAnimation(fig, update, frames=num_frames, repeat=False)
+ani.save('OT_transport_animation.mp4', writer='ffmpeg')
+plt.show()
+#-------------------------------------------------------------------------------------------------------
+
+
+
