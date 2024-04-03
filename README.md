@@ -1,4 +1,4 @@
-Laboratory Project - Linear Programming under Martingale Transport Constraint
+## Laboratory Project - Linear Programming under Martingale Transport Constraint
 
 Team : Romain Mondelice - Hanyun Hu - Raphael Monges 
 Supervisor : Guayue Guo 
